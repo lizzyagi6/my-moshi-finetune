@@ -1,37 +1,104 @@
 #!/bin/bash
+set -e
 
-#Define your local path
-LOCAL_DIR="../moshi_ft_runs/data/elon_f"
+# --- Configuration ---
+LOCAL_DATA_DIR="../moshi_ft_runs/data/elon_f"
 RUN_DIR="../moshi_ft_runs/runs"
+MODE=${1:-"all"} # Default to 'all' if no argument is provided
 
-mkdir -p "$LOCAL_DIR"
-mkdir -p "$RUN_DIR"
-
-# 1. Load variables from .env file in the current directory
+# Load .env variables
 if [ -f .env ]; then
     export $(grep -v '^#' .env | xargs)
 else
-    echo "Error: .env file not found!"
-    exit 1
+    echo "Warning: .env file not found!"
 fi
 
-echo "Starting sync from R2 to $LOCAL_DIR..."
+# --- Stages ---
 
-# 4. Use uv to run the aws cli (ensures it's installed/available)
-# We add --size-only to speed up training starts if files haven't changed
-uv run aws s3 sync \
-    s3://duplexdata/elon_f \
-    "$LOCAL_DIR" \
-    --endpoint-url "$R2_END_POINT_URL" \
-    --region auto \
-    --size-only
+setup() {
+    echo "--- Stage: Setup ---"
+    mkdir -p "$LOCAL_DATA_DIR" "$RUN_DIR"
+    # Install uv if missing
+    if ! command -v uv &> /dev/null; then
+        curl -LsSf https://astral.sh/uv/install.sh | sh
+        source $HOME/.cargo/env
+    fi
+    # Ensure build tools are present for whisper/ipdb
+    uv pip install setuptools
+    uv add ipdb --no-build-isolation
+}
 
-echo "Data Sync complete. ..."
+sync_down() {
+    echo "--- Stage: Syncing Data FROM R2 ---"
+    uv run aws s3 sync \
+        s3://duplexdata/data/elon_f \
+        "$LOCAL_DATA_DIR" \
+        --endpoint-url "$R2_END_POINT_URL" \
+        --region auto \
+        --size-only
 
-echo "Generate data manifest file"
-uv run --with sphn python gen_manifest.py $LOCAL_DIR/data_stereo
+    echo "--- Stage: Syncing Experiment/Run dir FROM R2 ---"
+    uv run aws s3 sync \
+        "s3://duplexdata/experiments/user_$USER_NAME/" \
+        "$RUN_DIR" \
+        --endpoint-url "$R2_END_POINT_URL" \
+        --region auto \
+        --size-only
+}
 
-echo "Training starts with 1 GPU"
-export CUDA_VISIBLE_DEVICES=0
-uv run --no-build-isolation torchrun --nproc-per-node 1 \
-    -m train example/elon_f.yaml
+manifest() {
+    echo "--- Stage: Generating Data Manifest ---"
+    # Note: Using the directory you defined in your previous script
+    uv run --with sphn python gen_manifest.py "$LOCAL_DATA_DIR/data_stereo"
+}
+
+train() {
+    echo "--- Stage: Training (1 GPU) ---"
+    export CUDA_VISIBLE_DEVICES=0
+    # Use --no-build-isolation here as requested for your environment
+    uv run --no-build-isolation torchrun --nproc-per-node 1 \
+        -m train example/elon_f.yaml
+}
+
+sync_up() {
+    echo "--- Stage: Syncing Results TO R2 ---"
+    uv run aws s3 sync \
+        "$RUN_DIR" \
+        "s3://duplexdata/experiments/user_$USER_NAME/" \
+        --endpoint-url "$R2_END_POINT_URL" \
+        --region auto \
+        --size-only 
+}
+
+# --- Execution Logic ---
+
+case $MODE in
+    "setup")
+        setup
+        ;;
+    "sync-down")
+        sync_down
+        ;;
+    "manifest")
+        manifest
+        ;;
+    "train")
+        train
+        ;;
+    "sync-up")
+        sync_up
+        ;;
+    "all")
+        setup
+        sync_down
+        manifest
+        train
+        sync_up
+        ;;
+    *)
+        echo "Usage: $0 {setup|sync-down|manifest|train|sync-up|all}"
+        exit 1
+        ;;
+esac
+
+echo "Done: $MODE"
