@@ -8,7 +8,7 @@ Follow these steps to initialize your environment and launch the server:
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com
+git clone https://github.com/lizzyagi6/my-moshi-finetune.git
 cd my-moshi-finetune
 
 # 2. Add a .env file (Fill in your actual credentials)
