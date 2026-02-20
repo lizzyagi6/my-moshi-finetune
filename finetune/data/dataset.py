@@ -1,3 +1,5 @@
+import os
+import ipdb
 import itertools
 import json
 import logging
@@ -199,6 +201,8 @@ def get_dataset_iterator(
     epoch = 1
     while True:
         for jsonl_file in source.jsonl_files:
+
+
             dataset = sphn.dataset_jsonl(
                 str(jsonl_file),
                 duration_sec=instruct_tokenizer.duration_sec,
@@ -213,6 +217,7 @@ def get_dataset_iterator(
                 seed += 1
             else:
                 dataset = dataset.seq(skip=rank, step_by=world_size)
+
             for sample in dataset:
                 wav = sample["data"][..., : sample["unpadded_len"]]
                 yield instruct_tokenizer(wav, sample["start_time_sec"], sample["path"])

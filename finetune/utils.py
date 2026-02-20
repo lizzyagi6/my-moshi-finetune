@@ -12,7 +12,7 @@ logger = logging.getLogger("utils")
 @dataclasses.dataclass
 class TrainState:
     max_steps: int
-    step: int = 0
+    step: int = 0 #how many times optimizer.steps() is called
     elapsed_time: float = 0.0
     n_seen_tokens: int = 0
     this_step_time: float = 0.0

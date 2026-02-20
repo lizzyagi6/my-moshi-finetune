@@ -1,3 +1,6 @@
+
+import ipdb
+import os
 import functools
 import logging
 import math
@@ -13,11 +16,12 @@ from torch.distributed.fsdp import BackwardPrefetch
 from torch.distributed.fsdp.api import ShardingStrategy
 from torch.distributed.fsdp.fully_sharded_data_parallel import FullyShardedDataParallel
 
+from torch.distributed.fsdp import fully_shard, FSDPModule
+
 from .args import TrainArgs
 from .distributed import get_rank, get_world_size
 
 logger = logging.getLogger(__name__)
-
 
 def main_logger_info(message: str) -> None:
     if get_rank() == 0:
@@ -118,6 +122,9 @@ def get_fsdp_model(
     elif args.param_dtype == "float32":
         param_dtype = torch.float32
 
+    #if int(os.environ.get("RANK", 0)) == 0:
+    #    ipdb.set_trace()
+
     with torch.device("meta"):
         model = checkpointer_info.get_moshi(
             device="meta",
@@ -189,6 +196,7 @@ def get_fsdp_model(
     auto_wrap_policy = get_fsdp_policy(args.lora.enable)
 
     main_logger_info(f"Sharding model over {get_world_size()} GPUs ...")
+
 
     wrapped_model = FullyShardedDataParallel(
         model,

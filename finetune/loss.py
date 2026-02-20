@@ -13,14 +13,16 @@ def compute_loss_with_mask(
 ):
     target = torch.where(target_mask, target, torch.zeros_like(target))
 
-    weights = target_mask.float()
+    weights = target_mask.float() #B x dep_q (8 or 1) x T
     if mode == "audio":
-        weights[:, 0] *= first_codebook_weight_multiplier
+        weights[:, 0] *= first_codebook_weight_multiplier #not this is the first audio code
     elif mode == "text":
         assert text_padding_ids is not None
         for id in text_padding_ids:
-            weights[target == id] *= text_padding_weight
+            weights[target == id] *= text_padding_weight # e.g. text_padding_weight==0.5
 
+    #logits could be (text) torch.Size([2, 1, 750, 32000])
+    #or (audio) torch.Size([2, 8, 750, 2048])
     logits = logits.view(-1, logits.size(-1)).float()
     target = target.view(-1)
     weights = weights.view(-1)

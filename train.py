@@ -1,10 +1,15 @@
+import os
+import sys
+if os.getenv('LOCAL_MOSHI_DIR'):
+    sys.path.insert(0, os.getenv('LOCAL_MOSHI_DIR'))
+
 import dataclasses
 import logging
-import os
 import pprint
 import shutil
 from contextlib import ExitStack
 from pathlib import Path
+import ipdb
 
 import fire
 import torch.cuda
@@ -46,11 +51,9 @@ from moshi.models import loaders
 
 logger = logging.getLogger("train")
 
-
 def main_logger_info(message: str) -> None:
     if get_rank() == 0:
         logger.info(message)
-
 
 def train(config: str):
     args: TrainArgs = TrainArgs.load(config, drop_extra_fields=False)
@@ -150,6 +153,7 @@ def _train(args: TrainArgs, exit_stack: ExitStack):
     # 4.2 Load and shard model, prepare interleaver for audio/text tokens.
     model = get_fsdp_model(args, checkpoint_info)
 
+
     spm = checkpoint_info.get_text_tokenizer()
 
     interleaver = Interleaver(
@@ -164,6 +168,9 @@ def _train(args: TrainArgs, exit_stack: ExitStack):
         mimi, interleaver, duration_sec=args.duration_sec
     )
 
+    #if int(os.environ.get("RANK", 0)) == 0:
+    #    ipdb.set_trace()
+
     # 5. Load data loaders
     data_loader = build_data_loader(
         instruct_tokenizer=interleaved_tokenizer,
@@ -174,6 +181,9 @@ def _train(args: TrainArgs, exit_stack: ExitStack):
         world_size=get_world_size(),  # DDP world_size
         is_eval=False,
     )
+
+    #hack
+    #next(data_loader)
 
     if args.do_eval:
         eval_data_loader = build_data_loader(
@@ -211,6 +221,9 @@ def _train(args: TrainArgs, exit_stack: ExitStack):
 
     state = TrainState(args.max_steps)
 
+    #if int(os.environ.get("RANK", 0)) == 0:
+    #    ipdb.set_trace()
+
     # 8. Initialize checkpointer
     if args.do_ckpt:
         checkpointer = Checkpointer(
@@ -243,7 +256,7 @@ def _train(args: TrainArgs, exit_stack: ExitStack):
 
         for i in range(args.num_microbatches):
             batch = next(data_loader)
-            codes = batch.codes
+            codes = batch.codes #Batch size by 17 by 750, B x n_q x T, these are just LongInt codebook ids
 
             condition_tensors = None
             if batch.condition_attributes is not None:
@@ -253,6 +266,7 @@ def _train(args: TrainArgs, exit_stack: ExitStack):
 
             # forward / backward
             output = model(codes=codes, condition_tensors=condition_tensors)
+
             text_loss = compute_loss_with_mask(
                 output.text_logits,
                 codes[:, : model.audio_offset],
@@ -307,6 +321,9 @@ def _train(args: TrainArgs, exit_stack: ExitStack):
 
         last_lr = scheduler.get_last_lr()[0]
         scheduler.step()
+
+        #if int(os.environ.get("RANK", 0)) == 0:
+        #    ipdb.set_trace()
 
         # Host sync
         loss_item = loss.item()
