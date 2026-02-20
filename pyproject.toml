@@ -19,7 +19,7 @@ dependencies = [
   "moshi @ git+https://github.com/kyutai-labs/moshi.git#subdirectory=moshi",
   "sphn==0.1.12",
   "auditok==0.2",
-  "whisper_timestamped",
+  #"whisper_timestamped",
   "huggingface_hub",
   "torchaudio",
   "submitit",

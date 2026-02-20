@@ -14,18 +14,16 @@ else
 fi
 
 # --- Stages ---
-
 setup() {
     echo "--- Stage: Setup ---"
     mkdir -p "$LOCAL_DATA_DIR" "$RUN_DIR"
     # Install uv if missing
     if ! command -v uv &> /dev/null; then
         curl -LsSf https://astral.sh/uv/install.sh | sh
-        source $HOME/.cargo/env
+        # Ensure it's available in the current shell session
+        export PATH="$HOME/.cargo/bin:$PATH" 
     fi
-    # Ensure build tools are present for whisper/ipdb
-    uv pip install setuptools
-    uv add ipdb --no-build-isolation
+    uv add ipdb
 }
 
 sync_down() {
@@ -93,7 +91,6 @@ case $MODE in
         sync_down
         manifest
         train
-        sync_up
         ;;
     *)
         echo "Usage: $0 {setup|sync-down|manifest|train|sync-up|all}"
