@@ -2,7 +2,7 @@
 
 This repository contains scripts and instructions for setting up and running the Moshi fine-tuning environment on a Linux server.
 
-## 🚀 Training Steps
+## 🚀 Steps
 
 Follow these steps to initialize your environment and launch the server:
 
