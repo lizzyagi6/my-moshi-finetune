@@ -268,11 +268,13 @@ def _train(args: TrainArgs, exit_stack: ExitStack):
     if 1 and int(os.environ.get("RANK", 0)) == 0:
         run = Run(experiment='elon_pods_testing')
         run.add_tag('batch_sz8')
-        run.add_tag('lr1e-5')
+        run.add_tag('lr1e-4')
+        run.add_tag('gpu=1')
+        run.description = 'using both pod and 10hr synt data'
         run['hparams'] = {
-            'session': '17_hr_pods',
+            'session': '17_hr_pods+synth',
             'user': 'ct',
-            'learning_rate': 1e-5,
+            'learning_rate': 1e-4,
             'batch_sz': 8,
             'duration_sec': 30,
         }
