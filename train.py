@@ -270,7 +270,7 @@ def _train(args: TrainArgs, exit_stack: ExitStack):
         run.add_tag('batch_sz8')
         run.add_tag('lr1e-4')
         run.add_tag('gpu=1')
-        run.description = 'using both pod and 10hr synt data'
+        run.description = 'using both pod and 10hr synt data, with_replacement=1'
         run['hparams'] = {
             'session': '17_hr_pods+synth',
             'user': 'ct',

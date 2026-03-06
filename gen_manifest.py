@@ -7,6 +7,14 @@ from pathlib import Path
 import ipdb
 import re
 
+def de_root(paths, root_dir):
+    """
+    Converts absolute paths to relative paths based on the root_dir.
+    """
+    root = Path(root_dir).resolve()
+    # Returns the path relative to root_dir
+    return [p.resolve().relative_to(root) for p in paths]
+
 
 def get_durations(input_path, ext, align_dir):
     # Standard glob for all files, filtered by extension
@@ -41,39 +49,50 @@ def get_durations(input_path, ext, align_dir):
     if not valid_data:
         return [], []
         
-    return zip(*valid_data)
+    # Cast to list so it's indexable and reusable
+    return list(zip(*valid_data))
 
 
-def generate_jsonl(file_dir, ext: str, align_dir: str):
+def generate_jsonl(root_dir, folder, ext: str, align_dir: str):
+    file_dir = os.path.join(root_dir, folder)
     input_path = Path(file_dir).resolve()
-    paths, durations = get_durations(input_path, ext, align_dir)
-
-    if not paths:
+    
+    # Unpack safely
+    result = get_durations(input_path, ext, align_dir)
+    if not result or not result[0]:
         print("No valid file pairs found. Exiting.")
         return
 
-    out_file = input_path.parent / 'data_.jsonl'
+    paths, durations = result
+
+    # Convert to relative paths based on root_dir
+    rel_paths = de_root(paths, root_dir)
+
+    # Use input_path.parent (the root_dir) or file_dir for the output manifest location
+    out_file = Path(root_dir).resolve() / 'data_.jsonl'
     
-    print(f"Writing to: {out_file}, for {len(paths)} audio files")
+    print(f"Writing to: {out_file}, for {len(rel_paths)} audio files")
     with open(out_file, "w") as fobj:
-        for p, d in zip(paths, durations):
+        for p, d in zip(rel_paths, durations):
+            # p is now a relative Path object
             json.dump({"path": str(p), "duration": d}, fobj)
             fobj.write("\n")
-    print(f"Done! Processed {len(paths)} files.")
-
+    print(f"Done! Processed {len(rel_paths)} files.")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Generate a JSONL manifest for audio and alignment files.")
-    parser.add_argument("file_dir", type=str, help="Directory containing the audio files")
+    parser.add_argument("root_dir", type=str, help="parent Directory containing of all the data")
+    parser.add_argument("folder", type=str, help="Directory containing the audio files")
     parser.add_argument("--align_dir", type=str, required=True, help="Subdirectory containing .json alignments")
     parser.add_argument("--ext", type=str, default='wav', help="audio extension e.g. wav, flac, opus")
     args = parser.parse_args()
     
-    generate_jsonl(args.file_dir, args.ext, args.align_dir)
+    generate_jsonl(args.root_dir, args.folder, args.ext, args.align_dir)
 
 
 #usage:
+#uv run python ./gen_manifest.py  /mnt/dnn3/nfs/r2/training_data/elon_convo pods --align_dir whisper --ext flac
 #uv run python ./gen_manifest.py  "/mnt/dnn3/nfs/r2/training_data/elon_convo/pods" --align_dir whisper --ext flac
 
 

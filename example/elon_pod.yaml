@@ -2,8 +2,8 @@
 data:
   eval_data: '../moshi_ft_runs/training_data/elon_convo/eval_pods.jsonl'
   shuffle: true
-  #train_data: '../moshi_ft_runs/training_data/elon_convo/train_pods.jsonl'
-  train_data: '../moshi_ft_runs/training_data/elon_convo/train_pods.jsonl,../moshi_ft_runs/training_data/elon_convo/train_syn10hr.jsonl' 
+  train_data: '../moshi_ft_runs/training_data/elon_convo/train_pods.jsonl'
+  #train_data: '../moshi_ft_runs/training_data/elon_convo/train_pods.jsonl,../moshi_ft_runs/training_data/elon_convo/train_syn10hr.jsonl' 
 
 # model
 moshi_paths: 
