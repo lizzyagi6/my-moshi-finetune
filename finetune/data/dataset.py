@@ -68,7 +68,12 @@ class DataDir:
     @property
     def jsonl_files(self):
         assert self.path.exists(), f"Make sure that {self.path} exists"
-        jsonl_files = list(self.path.rglob("*jsonl"))
+        # rglob finds all files; we then filter out those starting with '._' or '.'
+        jsonl_files = [
+            f for f in self.path.rglob("*.jsonl") 
+            if not f.name.startswith("._")
+        ]
+
         assert len(jsonl_files) > 0, (
             f"{self.path} does not seem to have any files ending with '.jsonl'"
         )
@@ -153,7 +158,11 @@ def build_dataset(
     is_eval: bool,
     shuffle_pretrain: bool = False,
 ) -> Iterator[Sample]:
+
     sources, probabilities = parse_data_sources(pretrain_data=pretrain_data)
+    # e.g. [DataDir(path=PosixPath('../moshi_ft_runs/training_data/elon_podcasts'))], [1.0]
+    #sources is a list of path to folders containing .jsonl files, or a list of .jsonl files
+
 
     shuffle = not is_eval and shuffle_pretrain
 
@@ -166,6 +175,7 @@ def build_dataset(
             is_finite=is_eval,
             seed=seed,
             shuffle_at_epoch=shuffle,
+            info=('eval' if is_eval else "")
         )
         for source in sources
     ]
@@ -197,32 +207,47 @@ def get_dataset_iterator(
     is_finite: bool,
     seed: int | None,
     shuffle_at_epoch: bool,
+    info: str = "",
 ) -> Iterator[Sample]:
     epoch = 1
     while True:
         for jsonl_file in source.jsonl_files:
-
-
             dataset = sphn.dataset_jsonl(
                 str(jsonl_file),
                 duration_sec=instruct_tokenizer.duration_sec,
                 num_threads=4,
-                sample_rate=instruct_tokenizer.mimi.sample_rate,
+                sample_rate=instruct_tokenizer.mimi.sample_rate, #2400
                 pad_last_segment=True,
             )
             if shuffle_at_epoch:
                 dataset = dataset.shuffle(
-                    with_replacement=False, skip=rank, step_by=world_size, seed=seed
+                    with_replacement=False,
+                    #with_replacement=True,
+                    skip=rank, step_by=world_size, seed=seed
                 )
                 seed += 1
             else:
                 dataset = dataset.seq(skip=rank, step_by=world_size)
 
+            #if int(os.environ.get("RANK", 0)) == 0:    ipdb.set_trace()
             for sample in dataset:
+                """
+                {'sample_index': 0, 'file_index': 0, 
+                'path': '/mnt/dnn3/tang/wksp26/moshi_ft_runs/data/elon_f/data_stereo/22.wav', 
+                'start_time_sec': 0.0, 
+                'sample_rate': 24000, 
+                'unpadded_len': 942720, 
+                'gen_duration_sec': 0.032363242, 
+                'data': numpy np.float32, 2 x 942720 ndarray }
+                """
                 wav = sample["data"][..., : sample["unpadded_len"]]
+                if 1:
+                    print(f'> sample {info} {os.path.basename(sample['path'])} start_sec:{sample['start_time_sec']} {wav.shape} sample_index:{sample['sample_index']} file_index:{sample['file_index']} shuffle:{shuffle_at_epoch}')
                 yield instruct_tokenizer(wav, sample["start_time_sec"], sample["path"])
+
         if is_finite:
             break
+
         print(f"Rank {rank} finished epoch {epoch}")
         epoch += 1
 

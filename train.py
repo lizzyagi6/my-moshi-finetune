@@ -15,8 +15,9 @@ import fire
 import torch.cuda
 import torch.distributed as dist
 from torch.optim import AdamW, lr_scheduler
-
 # from torch.profiler import ProfilerActivity, profile
+
+from aim import Run
 
 from finetune.args import TrainArgs
 from finetune.checkpointing import Checkpointer
@@ -153,8 +154,10 @@ def _train(args: TrainArgs, exit_stack: ExitStack):
     # 4.2 Load and shard model, prepare interleaver for audio/text tokens.
     model = get_fsdp_model(args, checkpoint_info)
 
-
     spm = checkpoint_info.get_text_tokenizer()
+
+    #if int(os.environ.get("RANK", 0)) == 0:
+    #    ipdb.set_trace()
 
     interleaver = Interleaver(
         spm,
@@ -168,8 +171,7 @@ def _train(args: TrainArgs, exit_stack: ExitStack):
         mimi, interleaver, duration_sec=args.duration_sec
     )
 
-    #if int(os.environ.get("RANK", 0)) == 0:
-    #    ipdb.set_trace()
+    #if int(os.environ.get("RANK", 0)) == 0: ipdb.set_trace()
 
     # 5. Load data loaders
     data_loader = build_data_loader(
@@ -182,19 +184,38 @@ def _train(args: TrainArgs, exit_stack: ExitStack):
         is_eval=False,
     )
 
-    #hack
-    #next(data_loader)
+    if 0:
+        import sphn
+        import numpy as np
 
-    if args.do_eval:
-        eval_data_loader = build_data_loader(
-            instruct_tokenizer=interleaved_tokenizer,
-            args=args.data,
-            batch_size=args.batch_size,
-            seed=None,
-            rank=get_rank(),  # DDP rank
-            world_size=get_world_size(),  # DDP world_size
-            is_eval=True,
-        )
+        #path = "/mnt/dnn3/nfs/r2/training_data/elon_podcasts/data_stereo/aMcmuKTfr54_part3.flac"
+        path = "/mnt/dnn3/nfs/r2/training_data/elon_podcasts/data.jsonl"
+        reader = sphn.dataset_jsonl(path, duration_sec=30.0, 
+                                    num_threads=4,
+                                    sample_rate=24000,
+                                    pad_last_segment=True,
+                                    )
+
+        # Try to read the first item
+        try:
+            for item in reader:
+                # Access the 'data' key to get the numpy array
+                audio_data = item['data'] 
+                print(f"Successfully read FLAC!")
+                print(f"Shape: {audio_data.shape}") # Now .shape will work
+                print(f"Sample Rate: {item['sample_rate']}")
+                break
+
+        except Exception as e:
+            print(f"Failed to read FLAC: {e}")
+
+    #hack
+    for i in range(0):
+        aa = next(data_loader)
+        ipdb.set_trace()
+
+    #if int(os.environ.get("RANK", 0)) == 0:    ipdb.set_trace()
+
 
     # 6. Load model
     # Define mixed precision
@@ -221,8 +242,7 @@ def _train(args: TrainArgs, exit_stack: ExitStack):
 
     state = TrainState(args.max_steps)
 
-    #if int(os.environ.get("RANK", 0)) == 0:
-    #    ipdb.set_trace()
+    #if int(os.environ.get("RANK", 0)) == 0: ipdb.set_trace()
 
     # 8. Initialize checkpointer
     if args.do_ckpt:
@@ -244,6 +264,19 @@ def _train(args: TrainArgs, exit_stack: ExitStack):
     model.train()
     torch.cuda.empty_cache()
 
+    run = None
+    if 1 and int(os.environ.get("RANK", 0)) == 0:
+        run = Run(experiment='elon_pods_testing')
+        run.add_tag('batch_sz8')
+        run.add_tag('lr1e-5')
+        run['hparams'] = {
+            'session': '17_hr_pods',
+            'user': 'ct',
+            'learning_rate': 1e-5,
+            'batch_sz': 8,
+            'duration_sec': 30,
+        }
+
     while state.step < args.max_steps:
         state.start_step()
         is_last_step = state.step == args.max_steps
@@ -251,12 +284,15 @@ def _train(args: TrainArgs, exit_stack: ExitStack):
         optimizer.zero_grad()
 
         loss = torch.tensor([0.0], device="cuda")
+        tot_audio_loss = torch.tensor([0.0], device="cuda")
+        tot_text_loss = torch.tensor([0.0], device="cuda")
         n_batch_tokens: int = 0
         n_real_tokens: int = 0
 
         for i in range(args.num_microbatches):
             batch = next(data_loader)
-            codes = batch.codes #Batch size by 17 by 750, B x n_q x T, these are just LongInt codebook ids
+            codes = batch.codes 
+            #[BatchSz by 17 by 750], B x n_q x T, these are just LongInt codebook ids
 
             condition_tensors = None
             if batch.condition_attributes is not None:
@@ -266,6 +302,16 @@ def _train(args: TrainArgs, exit_stack: ExitStack):
 
             # forward / backward
             output = model(codes=codes, condition_tensors=condition_tensors)
+            #class LMOutput:
+                # the logits are already re-aligned with the input codes
+                # hence no extra shift is required, e.g. when computing ce
+                #logits: torch.tensor  # [b, k, t, card]
+                #mask: torch.tensor  # [b, k, t]
+                #text_logits: torch.tensor  # [b, 1, t, text_card]
+                #text_mask: torch.Tensor  # [B, 1, T]
+
+
+            #if int(os.environ.get("RANK", 0)) == 0: ipdb.set_trace()
 
             text_loss = compute_loss_with_mask(
                 output.text_logits,
@@ -290,6 +336,9 @@ def _train(args: TrainArgs, exit_stack: ExitStack):
             mb_loss.backward()
 
             loss += mb_loss.detach()
+            tot_audio_loss += audio_loss.detach()
+            tot_text_loss += text_loss.detach()
+
             n_batch_tokens += output.text_mask.numel() + output.mask.numel()
             n_real_tokens += (
                 torch.sum(output.text_mask).item() + torch.sum(output.mask).item()
@@ -302,6 +351,9 @@ def _train(args: TrainArgs, exit_stack: ExitStack):
 
         if args.num_microbatches > 1:
             loss /= args.num_microbatches
+            tot_audio_loss /= args.num_microbatches
+            tot_text_loss /= args.num_microbatches
+
             for p in model.parameters():
                 if p.requires_grad:
                     assert p.grad is not None
@@ -332,8 +384,17 @@ def _train(args: TrainArgs, exit_stack: ExitStack):
         if args.do_eval and (
             (args.eval_freq > 0 and state.step % args.eval_freq == 0) or is_last_step
         ):
+
+            #if int(os.environ.get("RANK", 0)) == 0: ipdb.set_trace()
+
             # write perplexity to state
-            evaluate(model, eval_data_loader, state, args)
+            #evaluate(model, eval_data_loader, state, args)
+            evaluate(model, interleaved_tokenizer, state, args, total_eval_samples=100 )
+
+            if run:
+                run.track(state.this_eval_loss, name='eval_loss', step=state.step, context={ "subset":"eval" })
+                run.track(state.this_audio_loss, name='eval_audio_loss', step=state.step, context={ "subset":"eval" })
+                run.track(state.this_text_loss, name='eval_text_loss', step=state.step, context={ "subset":"eval" })
 
             eval_logs = get_eval_logs(
                 state.step,
@@ -345,10 +406,18 @@ def _train(args: TrainArgs, exit_stack: ExitStack):
             main_logger_info(eval_log_msg(eval_logs))
             eval_logger.log(eval_logs, step=state.step)
 
+            #if int(os.environ.get("RANK", 0)) == 0: ipdb.set_trace()
+
         # Timing
         state.end_step(n_batch_tokens)
 
         if state.step % args.log_freq == 0:
+
+            if run:
+                run.track(avg_loss, name='train_loss', step=state.step, context={ "subset":"train" })
+                run.track(tot_audio_loss.item(), name='train_audio_loss', step=state.step, context={ "subset":"train" })
+                run.track(tot_text_loss.item(), name='train_text_loss', step=state.step, context={ "subset":"train" })
+
             train_logs = get_train_logs(
                 state,
                 avg_loss,

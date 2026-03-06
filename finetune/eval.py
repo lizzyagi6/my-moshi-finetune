@@ -1,3 +1,5 @@
+import os
+import ipdb
 import logging
 from typing import Iterator
 
@@ -7,6 +9,7 @@ import torch.distributed as dist
 from torch.distributed.fsdp.fully_sharded_data_parallel import FullyShardedDataParallel
 
 from finetune.args import TrainArgs
+from finetune.data.data_loader import build_data_loader
 
 from .data.data_loader import Batch
 from .distributed import get_rank, get_world_size
@@ -23,19 +26,42 @@ def main_logger_info(message: str) -> None:
 
 def evaluate(
     model: FullyShardedDataParallel,
-    eval_data_loader: Iterator[Batch],
+    #eval_data_loader: Iterator[Batch],
+    interleaved_tokenizer,
     state: TrainState,
     args: TrainArgs,
+    total_eval_samples: int,
 ):
+    eval_data_loader = build_data_loader(
+        instruct_tokenizer=interleaved_tokenizer,
+        args=args.data,
+        batch_size=args.batch_size,
+        seed=None,
+        rank=get_rank(),  # DDP rank
+        world_size=get_world_size(),  # DDP world_size
+        is_eval=True,
+    )
+
     num_samples = torch.tensor([0], device="cuda", dtype=torch.long)
+    num_seen = 0
 
     text_loss = torch.tensor(0.0).cuda()
     audio_loss = torch.tensor(0.0).cuda()
+
+    print(f'eval, starting.. !')
+
+    losses = []
     model.eval()
     for batch in eval_data_loader:
-        num_samples += 1
-        if num_samples > 40 // get_world_size():
+        num_samples += 1 #really this is number of batches
+        num_seen += batch.codes.shape[0] 
+        #if int(os.environ.get("RANK", 0)) == 0: ipdb.set_trace()
+        #if num_samples > total_eval_samples // get_world_size():
+            #break
+
+        if num_seen > total_eval_samples // get_world_size():
             break
+
         with torch.no_grad():
             codes = batch.codes
             condition_tensors = None
@@ -45,7 +71,7 @@ def evaluate(
                 )
 
             output = model(codes=codes, condition_tensors=condition_tensors)
-            text_loss += compute_loss_with_mask(
+            text_loss_this = compute_loss_with_mask(
                 output.text_logits,
                 codes[:, : model.audio_offset],
                 output.text_mask,
@@ -56,15 +82,27 @@ def evaluate(
                     model.end_of_text_padding_id,
                 },
             )
-            audio_loss += compute_loss_with_mask(
+            audio_loss_this = compute_loss_with_mask(
                 output.logits,
                 codes[:, model.audio_offset : model.audio_offset + model.dep_q],
                 output.mask,
                 mode="audio",
                 first_codebook_weight_multiplier=args.first_codebook_weight_multiplier,
             )
+
+            losses.append({'text': text_loss_this.item(), 
+                           'audio': audio_loss_this.item() })
+            text_loss += text_loss_this
+            audio_loss += audio_loss_this
+
     eval_loss = text_loss + audio_loss
     all_num_samples = [torch.zeros_like(num_samples) for _ in range(get_world_size())]
+
+    print('eval, before all_gather here!!')
+
+    if not torch.isfinite(eval_loss):
+        print(losses)
+        if int(os.environ.get("RANK", 0)) == 0: ipdb.set_trace()
 
     torch.distributed.all_gather(all_num_samples, num_samples)
 
@@ -86,3 +124,6 @@ def evaluate(
 
     # train mode!
     model.train()
+
+    if not torch.isfinite(eval_loss):
+        if int(os.environ.get("RANK", 0)) == 0: ipdb.set_trace()

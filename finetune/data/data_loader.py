@@ -9,7 +9,7 @@ from .interleaver import Batch
 
 
 def build_data_loader(
-    instruct_tokenizer: Any,
+    instruct_tokenizer: Any, # this is the InterleavedTokenizer
     args: DataArgs,
     batch_size: int,
     seed: int | None,
@@ -20,6 +20,7 @@ def build_data_loader(
     if is_eval:
         assert args.eval_data != "", "No eval data provided."
     pretrain_data = args.train_data if not is_eval else args.eval_data
+    # str, path to the trainding dir
 
     dataset = build_dataset(
         pretrain_data=pretrain_data,
@@ -30,6 +31,8 @@ def build_data_loader(
         is_eval=is_eval,
         shuffle_pretrain=args.shuffle,
     )
+
+    #if int(os.environ.get("RANK", 0)) == 0:    ipdb.set_trace()
 
     sample_list = []
     for sample in dataset:

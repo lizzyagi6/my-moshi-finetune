@@ -122,8 +122,6 @@ def get_fsdp_model(
     elif args.param_dtype == "float32":
         param_dtype = torch.float32
 
-    #if int(os.environ.get("RANK", 0)) == 0:
-    #    ipdb.set_trace()
 
     with torch.device("meta"):
         model = checkpointer_info.get_moshi(
@@ -138,6 +136,8 @@ def get_fsdp_model(
             load_weight=False,
         )
 
+    #if int(os.environ.get("RANK", 0)) == 0:  ipdb.set_trace()
+
     if get_rank() == 0:
         moshi_weight = checkpointer_info.moshi_weights
 
@@ -150,6 +150,9 @@ def get_fsdp_model(
             model_state_dict[k] = v.to(param_dtype)
 
         model.load_state_dict(model_state_dict, strict=False, assign=True)
+        #hack
+        #model.to_empty(device=torch.cuda.current_device())
+        #model.to(param_dtype)
 
         if args.lora.enable and not args.full_finetuning:
             logger.info("Initializing lora layers ...")
@@ -166,7 +169,6 @@ def get_fsdp_model(
         logger.info("Finished initialization!")
         param_init_fn = None
     else:
-
         def param_init_fn(m):
             m.to_empty(device=torch.cuda.current_device(), recurse=False)
             m.to(param_dtype)

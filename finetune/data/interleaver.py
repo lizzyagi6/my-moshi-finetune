@@ -10,7 +10,7 @@ import sentencepiece
 import torch
 from moshi.conditioners import ConditionAttributes
 
-Alignment = tuple[str, tuple[float, float], str]
+Alignment = tuple[str, tuple[float, float], str] #e.g. ["Yeah.", [65.6, 67.28], "SPEAKER_MAIN"]
 TokenizedAlignment = tuple[list[int], tuple[float, float], str]
 
 
@@ -55,6 +55,10 @@ def tokenize(
 
 class Interleaver:
     """Interleaver with basic featuress
+
+    takes a list of alignemnt (tokenized) and a duration in secs, and add text
+    tokens to a fixed audio stream of vectors (e.g. at 12.5 Hz)
+
     Args:
         tokenizer: text tokenizer used by the model.
         audio_frame_rate (float): frame rate of the audio tokenizer.
@@ -75,7 +79,7 @@ class Interleaver:
     def __init__(
         self,
         tokenizer: sentencepiece.SentencePieceProcessor,
-        audio_frame_rate: float,
+        audio_frame_rate: float, #e.g. 12.5 hz
         text_padding: int,
         end_of_text_padding: int,
         zero_padding: int,
@@ -233,6 +237,11 @@ class Interleaver:
 
 
 def dicho(alignment, val, i=0, j=None):
+    """
+    dichotomous or recursive binary search
+    alignment is a list of list (or tuples), 
+        e.g. list of ["Yeah.", [65.6, 67.28], "SPEAKER_MAIN"] 
+    """
     if j is None:
         j = len(alignment)
     if i == j:
@@ -250,6 +259,7 @@ class InterleavedTokenizer:
         self.interleaver = interleaver
         self.duration_sec = duration_sec
         self.num_audio_frames = math.ceil(duration_sec * mimi.frame_rate)
+        self.subfolder = 'whisper'
 
     def __call__(self, wav: np.ndarray, start_sec: float, path: str) -> Sample:
         with torch.no_grad():
@@ -264,7 +274,11 @@ class InterleavedTokenizer:
             )
             audio_tokens = audio_tokens.view(1, -1, self.num_audio_frames)
 
-            info_file = os.path.splitext(path)[0] + ".json"
+            #info_file = os.path.splitext(path)[0] + ".json"
+            name_only = os.path.splitext(os.path.basename(path))[0]
+            info_file = os.path.join(os.path.dirname(path), 
+                                     self.subfolder, 
+                                     name_only + '.json' )
             with open(info_file) as f:
                 data = json.load(f)
                 alignments = data["alignments"]

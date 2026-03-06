@@ -21,9 +21,9 @@ setup() {
     if ! command -v uv &> /dev/null; then
         curl -LsSf https://astral.sh/uv/install.sh | sh
         # Ensure it's available in the current shell session
-        export PATH="$HOME/.cargo/bin:$PATH" 
+        #export PATH="$HOME/.cargo/bin:$PATH" 
     fi
-    uv add ipdb
+    uv add ipdb sphn pydub mutagen librosa
 }
 
 sync_down() {
