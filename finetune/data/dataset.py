@@ -241,7 +241,7 @@ def get_dataset_iterator(
                 'data': numpy np.float32, 2 x 942720 ndarray }
                 """
                 wav = sample["data"][..., : sample["unpadded_len"]]
-                if 1:
+                if 0:
                     print(f"> sample {info} {os.path.basename(sample['path'])} start_sec:{sample['start_time_sec']} {wav.shape} sample_index:{sample['sample_index']} file_index:{sample['file_index']} shuffle:{shuffle_at_epoch}")
                 yield instruct_tokenizer(wav, sample["start_time_sec"], sample["path"])
 

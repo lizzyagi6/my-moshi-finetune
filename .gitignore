@@ -106,4 +106,5 @@ cython_debug/
 example/debug_configs/
 
 runs/
+.aim/
 
