@@ -221,8 +221,8 @@ def get_dataset_iterator(
             )
             if shuffle_at_epoch:
                 dataset = dataset.shuffle(
-                    #with_replacement=False,
-                    with_replacement=True,
+                    with_replacement=False,
+                    #with_replacement=True,
                     skip=rank, step_by=world_size, seed=seed
                 )
                 seed += 1

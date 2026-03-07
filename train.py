@@ -267,16 +267,19 @@ def _train(args: TrainArgs, exit_stack: ExitStack):
     run = None
     if 1 and int(os.environ.get("RANK", 0)) == 0:
         run = Run(experiment='elon_pods_testing')
-        run.add_tag('batch_sz8')
-        run.add_tag('lr1e-4')
-        run.add_tag('gpu=1')
-        run.description = 'using both pod and 10hr synt data, with_replacement=1'
+        #run.add_tag('batch_sz16')
+        #run.add_tag('lr2e-5')
+        #run.add_tag('gpu=1')
+        run.description = 'going to default, withreplacement=true'
         run['hparams'] = {
             'session': '17_hr_pods+synth',
             'user': 'ct',
-            'learning_rate': 1e-4,
+            'learning_rate': 2e-6,
             'batch_sz': 8,
-            'duration_sec': 30,
+            'duration_sec': 100,
+            'max_steps': 10000,
+            'wt_decay': 0.1,
+            'lora_rank': 128,
         }
 
     while state.step < args.max_steps:

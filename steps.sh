@@ -5,6 +5,7 @@ set -e
 LOCAL_DATA_DIR="../moshi_ft_runs/training_data/elon_convo"
 RUN_DIR="../moshi_ft_runs/runs"
 MODE=${1:-"all"} # Default to 'all' if no argument is provided
+SUB_DIR=$2  # Capture the second argument (the folder name)
 
 # Load .env variables
 if [ -f .env ]; then
@@ -54,13 +55,20 @@ train() {
 }
 
 sync_up() {
-    echo "--- Stage: Syncing Results TO R2 ---"
+    local target_folder=$1
+
+    # If a subfolder is provided, append it to the paths; otherwise use base dirs
+    local src="$RUN_DIR/${target_folder}"
+    local dest="s3://duplexdata/experiments/user_$USER_NAME/${target_folder}"
+
+    echo "--- Stage: Syncing $src TO $dest ---"
+
     uv run aws s3 sync \
-        "$RUN_DIR" \
-        "s3://duplexdata/experiments/user_$USER_NAME/" \
+        "$src" \
+        "$dest" \
         --endpoint-url "$R2_END_POINT_URL" \
         --region auto \
-        --size-only 
+        --size-only
 }
 
 # --- Execution Logic ---
@@ -79,7 +87,7 @@ case $MODE in
         train
         ;;
     "sync-up")
-        sync_up
+        sync_up "$SUB_DIR"
         ;;
     "all")
         setup
