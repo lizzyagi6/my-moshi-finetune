@@ -41,6 +41,8 @@ save_adapters: true # Must be False if full_finetuning is True
 run_dir: "../moshi_ft_runs/runs/elon_pods100"  # Fill
 overwrite_run_dir: true
 
+description: "initial run w/ pods100+everyday"
+
 # This part is optional and can be kept commented out
 # wandb:
 #   project: "" # your wandb project name
