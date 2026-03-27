@@ -17,7 +17,10 @@ import torch.distributed as dist
 from torch.optim import AdamW, lr_scheduler, Muon
 # from torch.profiler import ProfilerActivity, profile
 
-from aim import Run
+try:
+    from aim import Run
+except:
+    Run = None
 
 from finetune.args import TrainArgs
 from finetune.checkpointing import Checkpointer
@@ -320,7 +323,7 @@ def _train(args: TrainArgs, exit_stack: ExitStack):
     #if int(os.environ.get("RANK", 0)) == 0: ipdb.set_trace()
 
     run = None
-    if 1 and int(os.environ.get("RANK", 0)) == 0:
+    if Run is not None and int(os.environ.get("RANK", 0)) == 0:
         run = Run(experiment='elon_pods100_local')
         run.description = run['description'] = args.description 
         #run.add_tag('gpu=1')
@@ -352,7 +355,7 @@ def _train(args: TrainArgs, exit_stack: ExitStack):
 
         for i in range(args.num_microbatches):
             batch = next(data_loader)
-            codes = batch.codes 
+            codes = batch.codes
             #[BatchSz by 17 by 750], B x n_q x T, these are just LongInt codebook ids
 
             condition_tensors = None
