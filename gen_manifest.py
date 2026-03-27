@@ -26,7 +26,7 @@ def get_durations(input_path, ext, align_dir):
     valid_data = []
     
     # Ensure align_dir is a Path object relative to input_path
-    align_path = Path(input_path) / align_dir
+    align_path = Path(input_path).parent / align_dir
     
     if not align_path.is_dir():
         print(f"Error: Alignment directory '{align_path}' does not exist.")
@@ -53,31 +53,39 @@ def get_durations(input_path, ext, align_dir):
     return list(zip(*valid_data))
 
 
-def generate_jsonl(root_dir, folder, ext: str, align_dir: str):
+def generate_jsonl(root_dir, folder: str, ext: str, align_dir: str):
+    """
+    root_dir: e.g. /mnt/.../elon_convo
+    folder_dir: e.g. 'pod17'
+    align_dir: e.g. 'whisper'
+    """
+
     file_dir = os.path.join(root_dir, folder)
     input_path = Path(file_dir).resolve()
     
     # Unpack safely
-    result = get_durations(input_path, ext, align_dir)
+    result = get_durations(input_path / 'data_stereo', ext, align_dir)
     if not result or not result[0]:
-        print("No valid file pairs found. Exiting.")
+        print(f"No valid file pairs found for {folder}.")
         return
 
     paths, durations = result
 
+    dataset_path = Path(root_dir).resolve() / folder
+
     # Convert to relative paths based on root_dir
-    rel_paths = de_root(paths, root_dir)
+    rel_paths = de_root(paths, dataset_path)
 
     # Use input_path.parent (the root_dir) or file_dir for the output manifest location
-    out_file = Path(root_dir).resolve() / 'data_.jsonl'
-    
+    out_file = dataset_path / '_all_.jsonl'
+
     print(f"Writing to: {out_file}, for {len(rel_paths)} audio files")
     with open(out_file, "w") as fobj:
         for p, d in zip(rel_paths, durations):
             # p is now a relative Path object
             json.dump({"path": str(p), "duration": d}, fobj)
             fobj.write("\n")
-    print(f"Done! Processed {len(rel_paths)} files.")
+    print(f"Done! Processed {len(rel_paths)} files. -> {out_file}")
 
 
 if __name__ == "__main__":
@@ -92,8 +100,5 @@ if __name__ == "__main__":
 
 
 #usage:
-#uv run python ./gen_manifest.py  /mnt/dnn3/nfs/r2/training_data/elon_convo pods --align_dir whisper --ext flac
-#uv run python ./gen_manifest.py  "/mnt/dnn3/nfs/r2/training_data/elon_convo/pods" --align_dir whisper --ext flac
-
-
-
+#export DATA_DIR=/mnt/dnn3/nfs/r2/training_data/elon_convo
+#uv run python gen_manifest.py $DATA_DIR pods17 --align_dir whisper --ext flac

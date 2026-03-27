@@ -1,8 +1,8 @@
 # data
 data:
-  eval_data: '../moshi_ft_runs/training_data/elon_convo/pods100/eval.jsonl,../moshi_ft_runs/training_data/elon_convo/everyday/eval.jsonl'
-  shuffle: true
-  train_data: '../moshi_ft_runs/training_data/elon_convo/pods100/train.jsonl,../moshi_ft_runs/training_data/elon_convo/everyday/train.jsonl'
+  eval_data: '' # Optional Fill
+  shuffle: false
+  train_data: '../../../data/duplex/daily_talk_contiguous/dailytalk.jsonl' # Fill
 
 # model
 moshi_paths: 
@@ -11,7 +11,7 @@ moshi_paths:
 full_finetuning: false # Activate lora.enable if partial finetuning
 lora:
   enable: true # Set to False if full_finetuning is True
-  rank: 128 
+  rank: 128
   scaling: 2.
   ft_embed: false # Optional, set to True if you want to finetune the embedding layer
 
@@ -19,26 +19,26 @@ first_codebook_weight_multiplier: 100.
 text_padding_weight: .5
 
 # optim
-duration_sec: 30
-batch_size: 16 
-max_steps: 10000
+duration_sec: 100
+batch_size: 1
+max_steps: 100
 gradient_checkpointing: true
 optim:
-  lr: 5e-5
+  lr: 2e-6
   weight_decay: 0.1
   pct_start: 0.05
 
 # other
 seed: 0
-log_freq: 10
-eval_freq: 200 
-do_eval: true
+log_freq: 1
+eval_freq: 1 
+do_eval: false
 do_ckpt: true
-ckpt_freq: 500
+ckpt_freq: 10
 
 save_adapters: true # Must be False if full_finetuning is True
 
-run_dir: "../moshi_ft_runs/runs/elon_pods100"  # Fill
+run_dir: "./runs/run1"  # Fill
 overwrite_run_dir: true
 
 # This part is optional and can be kept commented out

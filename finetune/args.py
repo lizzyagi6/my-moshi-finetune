@@ -67,6 +67,8 @@ class ModelPaths(Serializable):
 class TrainArgs(Serializable):
     data: DataArgs
 
+    description: str 
+
     run_dir: str  # Path to the directory where everything will be saved. It needs to be empty.
     # Name of the wandb run, if None it will be set to the name of the run_dir.
     moshi_paths: ModelPaths = field(default_factory=ModelPaths)
@@ -111,6 +113,9 @@ class TrainArgs(Serializable):
     param_dtype: str = "bfloat16"
 
     overwrite_run_dir: bool = False
+
+    use_muon: bool = False
+
 
     def __post_init__(self) -> None:
         assert getattr(self, "world_size", None) is None

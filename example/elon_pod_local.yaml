@@ -1,9 +1,8 @@
 # data
 data:
-  eval_data: '../moshi_ft_runs/training_data/elon_convo/eval_pods.jsonl'
+  eval_data: '../moshi_ft_runs/training_data/elon_convo/pods100/eval.jsonl,../moshi_ft_runs/training_data/elon_convo/everyday/eval.jsonl'
   shuffle: true
-  train_data: '../moshi_ft_runs/training_data/elon_convo/train_pods.jsonl'
-  #train_data: '../moshi_ft_runs/training_data/elon_convo/train_pods.jsonl,../moshi_ft_runs/training_data/elon_convo/train_syn10hr.jsonl' 
+  train_data: '../moshi_ft_runs/training_data/elon_convo/pods100/train.jsonl,../moshi_ft_runs/training_data/elon_convo/everyday/train.jsonl'
 
 # model
 moshi_paths: 
@@ -22,7 +21,7 @@ text_padding_weight: .5
 # optim
 duration_sec: 30
 batch_size: 8 
-max_steps: 500
+max_steps: 100
 gradient_checkpointing: true
 optim:
   lr: 1e-4
@@ -31,7 +30,7 @@ optim:
 
 # other
 seed: 0
-log_freq: 10
+log_freq: 1
 eval_freq: 50 
 do_eval: true
 do_ckpt: false
@@ -39,8 +38,10 @@ ckpt_freq: 100
 
 save_adapters: true # Must be False if full_finetuning is True
 
-run_dir: "../moshi_ft_runs/runs/elon_pods"  # Fill
+run_dir: "../moshi_ft_runs/runs/elon_pods_local"  # Fill
 overwrite_run_dir: true
+
+description: "pods100 testing"
 
 # This part is optional and can be kept commented out
 # wandb:

@@ -1,8 +1,9 @@
 # data
 data:
-  eval_data: '../moshi_ft_runs/training_data/elon_convo/pods100/eval.jsonl,../moshi_ft_runs/training_data/elon_convo/everyday/eval.jsonl'
+  eval_data: '../moshi_ft_runs/training_data/elon_convo/eval.jsonl'
   shuffle: true
-  train_data: '../moshi_ft_runs/training_data/elon_convo/pods100/train.jsonl,../moshi_ft_runs/training_data/elon_convo/everyday/train.jsonl'
+  train_data: '../moshi_ft_runs/training_data/elon_convo/train.jsonl'
+  #train_data: '../moshi_ft_runs/training_data/elon_convo/train_pods.jsonl,../moshi_ft_runs/training_data/elon_convo/train_syn10hr.jsonl' 
 
 # model
 moshi_paths: 
@@ -11,7 +12,7 @@ moshi_paths:
 full_finetuning: false # Activate lora.enable if partial finetuning
 lora:
   enable: true # Set to False if full_finetuning is True
-  rank: 128 
+  rank: 128
   scaling: 2.
   ft_embed: false # Optional, set to True if you want to finetune the embedding layer
 
@@ -20,26 +21,29 @@ text_padding_weight: .5
 
 # optim
 duration_sec: 30
-batch_size: 16 
-max_steps: 10000
+batch_size: 3 
+max_steps: 500
 gradient_checkpointing: true
 optim:
-  lr: 5e-5
+  lr: 1e-4
   weight_decay: 0.1
   pct_start: 0.05
 
 # other
 seed: 0
-log_freq: 10
-eval_freq: 200 
+log_freq: 1
+eval_freq: 50 
 do_eval: true
-do_ckpt: true
-ckpt_freq: 500
+do_ckpt: false
+ckpt_freq: 100
 
 save_adapters: true # Must be False if full_finetuning is True
 
-run_dir: "../moshi_ft_runs/runs/elon_pods100"  # Fill
+run_dir: "../moshi_ft_runs/runs/elon_asr_local"  # Fill
 overwrite_run_dir: true
+
+#description: "testing muon, match_rms_adamw lr 5e-4, no wt_decay"
+description: "pods100"
 
 # This part is optional and can be kept commented out
 # wandb:

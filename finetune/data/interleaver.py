@@ -1,6 +1,8 @@
+import ipdb
 import json
 import math
 import os
+from pathlib import Path
 from collections import deque
 from dataclasses import dataclass
 from functools import reduce
@@ -85,7 +87,7 @@ class Interleaver:
         zero_padding: int,
         in_word_padding: int | None = None,
         keep_main_only: bool = False,
-        main_speaker_label: str = "SPEAKER_MAIN",
+        #main_speaker_label: str = "SPEAKER_MAIN",
         use_bos_eos: bool = False,
         keep_and_shift: bool = False,
         audio_delay: float = 0.0,
@@ -94,19 +96,20 @@ class Interleaver:
     ):
         self.tokenizer = tokenizer
         self.audio_frame_rate = audio_frame_rate
-        self.text_padding = text_padding
-        self.end_of_text_padding = end_of_text_padding
-        self.zero_padding = zero_padding
+        self.text_padding = text_padding #e.g. 3
+        self.end_of_text_padding = end_of_text_padding #e.g. 0
+        self.zero_padding = zero_padding #e.g. -1
         self.in_word_padding = (
             self.text_padding if in_word_padding is None else in_word_padding
-        )
+        ) #e.g. 3
         self.keep_main_only = keep_main_only
-        self.main_speaker_label = main_speaker_label
+        #self.main_speaker_label = main_speaker_label
         self.use_bos_eos = use_bos_eos
         self.keep_and_shift = keep_and_shift
         self.audio_delay = audio_delay
         self.proba = proba
         self.device = device
+        assert audio_delay == 0.0, 'need to take a look at the logic of this delay'
 
     @property
     def special_tokens(self) -> set[int]:
@@ -178,6 +181,8 @@ class Interleaver:
         segment_duration: float,
     ) -> torch.Tensor:
         """Builds the token stream from the tokenized alignments."""
+
+
         T = math.ceil(segment_duration * self.audio_frame_rate)
         if alignments is None:
             text_tokens = [self.zero_padding] * T
@@ -191,13 +196,14 @@ class Interleaver:
                     i < len(alignments)
                     and alignments[i][1][0] * self.audio_frame_rate < t + 1
                 ):
-                    tokenized = alignments[i][0]
+                    tokenized = alignments[i][0] #token id of the text/word
                     last_word_end = int(alignments[i][1][1] * self.audio_frame_rate)
                     if self.keep_and_shift:
                         to_append_stack.extend(tokenized)
                     else:
                         to_append_stack = deque(tokenized)
                     i += 1
+
                 if to_append_stack:
                     if t > 0 and text_tokens[t - 1] in [
                         self.text_padding,
@@ -208,6 +214,7 @@ class Interleaver:
                     text_tokens[t] = next_token
                 elif t <= last_word_end:
                     text_tokens[t] = self.in_word_padding
+
         if self.audio_delay < 0:
             prefix_length = int(self.audio_frame_rate * -self.audio_delay)
             text_tokens[:prefix_length] = [self.zero_padding] * prefix_length
@@ -217,22 +224,26 @@ class Interleaver:
         self,
         alignments: list[Alignment] | None,
         segment_duration: float,
-        main_speaker: str | None = None,
+        #main_speaker: str | None = None,
+        speaker_name: str 
     ) -> torch.Tensor:
-        """Responsible with processing the alignments and calling `build_token_stream`."""
+        """Responsible with processing the alignments and calling `build_token_stream`.
+        segment_duration is the number of audio frames, 12.5hz * number of seconds.
+        """
+
         if alignments is None:
             tokenized = None
         else:
-            tokenized = self._tokenize(sorted(alignments, key=lambda x: x[1][0]))
+            tokenized = self._tokenize(sorted(alignments, key=lambda x: x[1][0])) #sort by start time
             if self.keep_main_only:
-                main_speaker = main_speaker or self.main_speaker_label
-                tokenized = self._keep_main_only(tokenized, main_speaker)
+                tokenized = self._keep_main_only(tokenized, speaker_name)
             elif self.use_bos_eos:
-                main_speaker = main_speaker or self.main_speaker_label
-                tokenized = self._insert_bos_eos(tokenized, main_speaker)
+                assert False #check the logic below
+                tokenized = self._insert_bos_eos(tokenized, speaker_name)
             tokenized = self._keep_those_with_duration(tokenized)
             if self.audio_delay != 0:
                 tokenized = self._add_delay(tokenized)
+        
         return self.build_token_stream(tokenized, segment_duration)
 
 
@@ -254,19 +265,23 @@ def dicho(alignment, val, i=0, j=None):
 
 
 class InterleavedTokenizer:
-    def __init__(self, mimi, interleaver, duration_sec: float):
+    def __init__(self, mimi, interleaver, duration_sec: float, transcription_folder_name: str):
         self.mimi = mimi
         self.interleaver = interleaver
         self.duration_sec = duration_sec
         self.num_audio_frames = math.ceil(duration_sec * mimi.frame_rate)
         self.subfolder = 'whisper'
+        self.subfolder = transcription_folder_name
 
     def __call__(self, wav: np.ndarray, start_sec: float, path: str) -> Sample:
+        """
+        :param path: str, path to the audio file
+        """
         with torch.no_grad():
             audio_tensor = torch.Tensor(wav).cuda()
             audio_tokens = self.mimi.encode(audio_tensor[:, None])
             audio_tokens = audio_tokens[..., : self.num_audio_frames]
-            this_num_audio_frames = audio_tokens.shape[-1]
+            this_num_audio_frames = audio_tokens.shape[-1] #could be smaller, e.g. 50 audio frames
             audio_tokens = torch.nn.functional.pad(
                 audio_tokens[..., : self.num_audio_frames],
                 (0, self.num_audio_frames - this_num_audio_frames),
@@ -274,30 +289,48 @@ class InterleavedTokenizer:
             )
             audio_tokens = audio_tokens.view(1, -1, self.num_audio_frames)
 
-            #info_file = os.path.splitext(path)[0] + ".json"
-            name_only = os.path.splitext(os.path.basename(path))[0]
-            info_file = os.path.join(os.path.dirname(path), 
-                                     self.subfolder, 
-                                     name_only + '.json' )
-            with open(info_file) as f:
+            audio_path = Path(path)
+            transcription_path = audio_path.parent.parent / self.subfolder / f"{audio_path.stem}.json"
+            with transcription_path.open('r') as f:
                 data = json.load(f)
-                alignments = data["alignments"]
+                align_left= data["alignments"]['left']
+                align_right= data["alignments"]['right']
 
-            start_alignment = dicho(alignments, start_sec)
-            end_alignment = dicho(alignments, start_sec + self.duration_sec)
-            alignments = [
-                (a[0], (a[1][0] - start_sec, a[1][1] - start_sec), a[2])
-                for a in alignments[start_alignment:end_alignment]
+            start_alignment = dicho(align_left, start_sec)
+            end_alignment = dicho(align_left, start_sec + self.duration_sec)
+            alignments_ai = [
+                (a[0], (round(a[1][0]-start_sec,3), round(a[1][1]-start_sec,3)), "SPEAKER_AI")
+                for a in align_left[start_alignment:end_alignment]
             ]
 
-            text_tokens = self.interleaver.prepare_item(
-                alignments, this_num_audio_frames
+            start_alignment = dicho(align_right, start_sec)
+            end_alignment = dicho(align_right, start_sec + self.duration_sec)
+            alignments_user = [
+                (a[0], (round(a[1][0]-start_sec,3), round(a[1][1]-start_sec,3)), "SPEAKER_USER")
+                for a in align_left[start_alignment:end_alignment]
+            ]
+
+            #alignments_x are segmented transcriptions with offset to start_sec
+            ai_text_tokens = self.interleaver.prepare_item(
+                alignments_ai, this_num_audio_frames/self.mimi.frame_rate, "SPEAKER_AI"
             )
-            text_tokens = torch.nn.functional.pad(
-                text_tokens,
-                (0, self.num_audio_frames - text_tokens.shape[-1]),
+            ai_text_tokens = torch.nn.functional.pad(
+                ai_text_tokens,
+                (0, self.num_audio_frames - ai_text_tokens.shape[-1]),
                 value=self.interleaver.zero_padding,
             )
 
-            codes = torch.cat([text_tokens, audio_tokens], dim=1)
+            user_text_tokens = self.interleaver.prepare_item(
+                alignments_user, this_num_audio_frames/self.mimi.frame_rate, "SPEAKER_USER"
+            )
+            user_text_tokens = torch.nn.functional.pad(
+                user_text_tokens,
+                (0, self.num_audio_frames - user_text_tokens.shape[-1]),
+                value=self.interleaver.zero_padding,
+            )
+
+            codes = torch.cat([ai_text_tokens, audio_tokens ], dim=1)
+
+            #codes = torch.cat([ai_text_tokens, audio_tokens, user_text_tokens ], dim=1)
+            #if int(os.environ.get("RANK", 0)) == 0:    ipdb.set_trace()
             return Sample(codes, data.get("text_conditions", None))

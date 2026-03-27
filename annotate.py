@@ -114,62 +114,68 @@ def process_one(
     if dur > 3600 * 4:
         raise RuntimeError("File is too long for now.")
 
-    vocals = x[channel][None]
-    
-    # Standardize resampling to 16kHz for Whisper
-    if sr != SAMPLE_RATE:
-        resampler = T.Resample(sr, SAMPLE_RATE).to(x.device)
-        vocals = resampler(vocals)
-        sr = SAMPLE_RATE
+    chunks = {0: [], 1: []}
+    for chan in range(2):
+        vocals = x[chan][None]
+        
+        # Standardize resampling to 16kHz for Whisper
+        if sr != SAMPLE_RATE:
+            resampler = T.Resample(sr, SAMPLE_RATE).to(x.device)
+            vocals = resampler(vocals)
+            sr = SAMPLE_RATE
 
-    def new_get_vad_segments(*args, **kwargs):
-        segs = old_get_vad_segments(*args, **kwargs)
-        outs = []
-        last_end = 0
-        d = int(SAMPLE_RATE * params.keep_silence_in_segments)
-        logger.debug("Reintroducing %d samples at the boundaries of the segments.", d)
-        for seg in segs:
-            outs.append(
-                {"start": max(last_end, seg["start"] - d), "end": seg["end"] + d}
-            )
-            last_end = outs[-1]["end"]
-        return outs
-
-    if params.keep_silence_in_segments:
-        transcribe.get_vad_segments = new_get_vad_segments  # type: ignore
-
-    vocals = vocals.cpu()
-    vocals = vocals.numpy()[0]
-    chunks = []
-    this_duration = vocals.shape[-1] / sr
-    logger.debug("Transcribing block in %s, of duration %.1f", language, this_duration)
-    pipe_output = whisper.transcribe(
-        w_model,
-        vocals,
-        language=language,
-        vad="auditok" if this_duration > 10 else None,
-        best_of=5,
-        beam_size=5,
-        temperature=(0.0, 0.2, 0.4, 0.6, 0.8, 1.0),
-        verbose=None,
-    )
-
-    for segment in pipe_output["segments"]:
-        if "words" not in segment:
-            logger.error("No words in %s: %r", in_file, segment)
-            continue
-        for word in segment["words"]:
-            try:
-                chunks.append(
-                    {"text": word["text"], "timestamp": (word["start"], word["end"])}
+        def new_get_vad_segments(*args, **kwargs):
+            segs = old_get_vad_segments(*args, **kwargs)
+            outs = []
+            last_end = 0
+            d = int(SAMPLE_RATE * params.keep_silence_in_segments)
+            logger.debug("Reintroducing %d samples at the boundaries of the segments.", d)
+            for seg in segs:
+                outs.append(
+                    {"start": max(last_end, seg["start"] - d), "end": seg["end"] + d}
                 )
-            except KeyError:
-                logger.error("Missing key in %s: %r", in_file, word)
-                raise
+                last_end = outs[-1]["end"]
+            return outs
+
+        if params.keep_silence_in_segments:
+            transcribe.get_vad_segments = new_get_vad_segments  # type: ignore
+
+        vocals = vocals.cpu()
+        vocals = vocals.numpy()[0]
+        this_duration = vocals.shape[-1] / sr
+        logger.debug("Transcribing block in %s, of duration %.1f", language, this_duration)
+        pipe_output = whisper.transcribe(
+            w_model,
+            vocals,
+            language=language,
+            vad="auditok" if this_duration > 10 else None,
+            best_of=5,
+            beam_size=5,
+            temperature=(0.0, 0.2, 0.4, 0.6, 0.8, 1.0),
+            verbose=None,
+        )
+
+        for segment in pipe_output["segments"]:
+            if "words" not in segment:
+                logger.error("No words in %s: %r", in_file, segment)
+                continue
+            for word in segment["words"]:
+                try:
+                    chunks[chan].append(
+                        #{"text": word["text"], "timestamp": (word["start"], word["end"])}
+                        [ word["text"], (word["start"], word["end"]) ]
+                    )
+                except KeyError:
+                    logger.error("Missing key in %s: %r", in_file, word)
+                    raise
+
     outputs = {
-        "alignments": [
-            [chunk["text"], chunk["timestamp"], "SPEAKER_MAIN"] for chunk in chunks
-        ]
+        "alignments": 
+            {
+                'left': chunks[0], 
+                'right': chunks[1], 
+            },
+        "language": language,
     }
     logger.debug("Whisper applied.")
     with write_and_rename(out_file, "w", pid=True) as f:
@@ -229,6 +235,9 @@ def run(params: "Params", shard: int = 0):
 
 
 def run_local(params: "Params", folder: str, shard: int = 0):
+    """
+    looks in a folder instead of egs file
+    """
     # 1. Initialization
     # Assuming init_logging is defined elsewhere
     # init_logging(params.verbose) 
@@ -249,7 +258,7 @@ def run_local(params: "Params", folder: str, shard: int = 0):
     # We use pathlib to find both .wav and .flac files
     folder_path = Path(folder)
     # This finds all files with either extension
-    paths = [p for p in folder_path.glob("**/*") if p.suffix.lower() in {".wav", ".flac"}]
+    paths = [p for p in folder_path.glob("**/*") if p.suffix.lower() in {".wav", ".flac"} and not p.name.startswith('._')]
     
     # Sharding logic: slice the list based on current shard index
     kept_paths = paths[shard :: params.shards]
@@ -262,7 +271,7 @@ def run_local(params: "Params", folder: str, shard: int = 0):
             logger.info("Processing % 8d / % 8d files.", idx + 1, len(kept_paths))
             
         # Define the output directory (./whisper/)
-        output_dir = path.parent / "whisper"
+        output_dir = path.parent.parent / "whisper"
         output_dir.mkdir(exist_ok=True)
 
         # Define files inside that folder
@@ -366,12 +375,11 @@ def main():
     params = Params(**kwargs)
 
     if args.local:
-        #params.shards = 1
+        #older one that uses a egs file
         #run(params)
 
-        params.shards = 2
+        #newer one that looks at at folder
         processes = []
-
         for i in range(params.shards):
             # We create a separate process for each shard
             p = multiprocessing.Process(

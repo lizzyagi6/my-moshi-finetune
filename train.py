@@ -14,7 +14,7 @@ import ipdb
 import fire
 import torch.cuda
 import torch.distributed as dist
-from torch.optim import AdamW, lr_scheduler
+from torch.optim import AdamW, lr_scheduler, Muon
 # from torch.profiler import ProfilerActivity, profile
 
 from aim import Run
@@ -55,6 +55,26 @@ logger = logging.getLogger("train")
 def main_logger_info(message: str) -> None:
     if get_rank() == 0:
         logger.info(message)
+
+# --- Helper Utility for 2026 SOTA Optimizer Splitting ---
+def get_optimizer_groups(model):
+    muon_params = []
+    adamw_params = []
+    for name, p in model.named_parameters():
+        print(name, p.ndim, p.requires_grad)
+
+    #if int(os.environ.get("RANK", 0)) == 0: ipdb.set_trace()
+    for name, p in model.named_parameters():
+        if not p.requires_grad:
+            continue
+        # Muon only handles >= 2D parameters (Weight Matrices)
+        # We exclude Embeddings because they are usually updated sparsely
+        if p.ndim >= 2 and "emb" not in name.lower():
+            muon_params.append(p)
+        else:
+            adamw_params.append(p)
+    return muon_params, adamw_params
+
 
 def train(config: str):
     args: TrainArgs = TrainArgs.load(config, drop_extra_fields=False)
@@ -156,8 +176,7 @@ def _train(args: TrainArgs, exit_stack: ExitStack):
 
     spm = checkpoint_info.get_text_tokenizer()
 
-    #if int(os.environ.get("RANK", 0)) == 0:
-    #    ipdb.set_trace()
+    #if int(os.environ.get("RANK", 0)) == 0:    ipdb.set_trace()
 
     interleaver = Interleaver(
         spm,
@@ -168,7 +187,8 @@ def _train(args: TrainArgs, exit_stack: ExitStack):
         keep_main_only=True,
     )
     interleaved_tokenizer = InterleavedTokenizer(
-        mimi, interleaver, duration_sec=args.duration_sec
+        mimi, interleaver, duration_sec=args.duration_sec, 
+        transcription_folder_name='whisper'
     )
 
     #if int(os.environ.get("RANK", 0)) == 0: ipdb.set_trace()
@@ -209,13 +229,12 @@ def _train(args: TrainArgs, exit_stack: ExitStack):
         except Exception as e:
             print(f"Failed to read FLAC: {e}")
 
-    #hack
-    for i in range(0):
-        aa = next(data_loader)
-        ipdb.set_trace()
+    if 0:
+        for i in range(3):
+            aa = next(data_loader)
+            ipdb.set_trace()
 
     #if int(os.environ.get("RANK", 0)) == 0:    ipdb.set_trace()
-
 
     # 6. Load model
     # Define mixed precision
@@ -224,21 +243,49 @@ def _train(args: TrainArgs, exit_stack: ExitStack):
 
     assert args.lora is not None, "`args.lora` should be set to a valid value."
 
+    opt_muon = None
+    scheduler_muon = None
+    if args.use_muon:
+        muon_lr = 5e-4
+        muon_params, adamw_params = get_optimizer_groups(model)
+        # Muon generally requires a MUCH higher learning rate (often 0.02)
+        # than AdamW (3e-4) to take advantage of orthogonal updates.
+        opt_muon = Muon(
+            muon_params, 
+            lr=muon_lr,
+            momentum=0.95,                   # SOTA standard for Muon
+            adjust_lr_fn='match_rms_adamw',
+            weight_decay=0.0,
+        ) if muon_params else None
+        # Since OneCycleLR only takes one optimizer, we wrap them or use two schedulers
+        # Here is the standard way to keep them in sync:
+        scheduler_muon = lr_scheduler.OneCycleLR(
+            opt_muon, 
+            max_lr=muon_lr, 
+            total_steps=args.max_steps, 
+            pct_start=args.optim.pct_start
+        ) if opt_muon else None
+
+    #if int(os.environ.get("RANK", 0)) == 0: ipdb.set_trace(dataset_path)
+
     # 7. Load optimizer
+    if not args.use_muon:
+        adamw_params = model.parameters()
+
     optimizer = AdamW(
-        model.parameters(),
+        adamw_params,
         lr=args.optim.lr,
         betas=(0.9, 0.95),
         eps=1e-08,
         weight_decay=args.optim.weight_decay,
-    )
+    ) if adamw_params else None
 
     scheduler = lr_scheduler.OneCycleLR(
         optimizer,
         max_lr=args.optim.lr,
         total_steps=args.max_steps,
         pct_start=args.optim.pct_start,
-    )
+    ) if optimizer else None
 
     state = TrainState(args.max_steps)
 
@@ -246,6 +293,9 @@ def _train(args: TrainArgs, exit_stack: ExitStack):
 
     # 8. Initialize checkpointer
     if args.do_ckpt:
+        if opt_muon:
+            assert False, "need to see how we can save the weights in this case"
+
         checkpointer = Checkpointer(
             model=model,
             state=state,
@@ -264,29 +314,32 @@ def _train(args: TrainArgs, exit_stack: ExitStack):
     model.train()
     torch.cuda.empty_cache()
 
+    #if int(os.environ.get("RANK", 0)) == 0: ipdb.set_trace()
+
     run = None
     if 1 and int(os.environ.get("RANK", 0)) == 0:
-        run = Run(experiment='elon_pods_testing')
-        #run.add_tag('batch_sz16')
-        #run.add_tag('lr2e-5')
+        run = Run(experiment='elon_pods100_local')
+        run.description = run['description'] = args.description 
         #run.add_tag('gpu=1')
-        run.description = 'going to default, withreplacement=true'
+
         run['hparams'] = {
-            'session': '17_hr_pods+synth',
             'user': 'ct',
-            'learning_rate': 2e-6,
-            'batch_sz': 8,
-            'duration_sec': 100,
-            'max_steps': 10000,
-            'wt_decay': 0.1,
-            'lora_rank': 128,
+            'learning_rate': args.optim.lr,
+            'batch_sz': args.batch_size,
+            'duration_sec': args.duration_sec,
+            'max_steps': args.max_steps,
+            'wt_decay': args.optim.weight_decay,
+            'lora_rank': args.lora.rank,
         }
 
     while state.step < args.max_steps:
         state.start_step()
         is_last_step = state.step == args.max_steps
 
-        optimizer.zero_grad()
+        if opt_muon:
+            opt_muon.zero_grad(set_to_none=True)
+        if optimizer:
+            optimizer.zero_grad(set_to_none=True)
 
         loss = torch.tensor([0.0], device="cuda")
         tot_audio_loss = torch.tensor([0.0], device="cuda")
@@ -371,13 +424,21 @@ def _train(args: TrainArgs, exit_stack: ExitStack):
         torch.nn.utils.clip_grad_norm_(model.parameters(), args.max_norm)
 
         # optimizer step
-        optimizer.step()
+        if opt_muon:
+            opt_muon.step()
+        if optimizer:
+            optimizer.step()
 
         # downcast params for forward & backward
         downcast_mixed_precision(model.parameters(), param_dtype=param_dtype)
 
-        last_lr = scheduler.get_last_lr()[0]
-        scheduler.step()
+        if scheduler_muon:
+            last_lr = scheduler_muon.get_last_lr()[0]
+            scheduler_muon.step()
+
+        if scheduler:
+            last_lr = scheduler.get_last_lr()[0]
+            scheduler.step()
 
         #if int(os.environ.get("RANK", 0)) == 0:
         #    ipdb.set_trace()
