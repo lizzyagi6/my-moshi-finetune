@@ -22,6 +22,7 @@ from aim import Run
 from finetune.args import TrainArgs
 from finetune.checkpointing import Checkpointer
 from finetune.data.data_loader import build_data_loader
+from finetune.data import dataset
 from finetune.data.interleaver import InterleavedTokenizer, Interleaver
 from finetune.distributed import (
     BACKEND,
@@ -203,6 +204,8 @@ def _train(args: TrainArgs, exit_stack: ExitStack):
         world_size=get_world_size(),  # DDP world_size
         is_eval=False,
     )
+    
+    dataset.UniqueWavPaths = set()
 
     if 0:
         import sphn
@@ -493,6 +496,8 @@ def _train(args: TrainArgs, exit_stack: ExitStack):
                 torch.cuda.memory_allocated(),
                 args,
             )
+            logging.info(f'Training has seen {len(dataset.UniqueWavPaths)} audio files!')
+
             main_logger_info(train_log_msg(state, logs=train_logs, loss=avg_loss))
             metrics_logger.log(train_logs, step=state.step)
 

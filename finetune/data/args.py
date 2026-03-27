@@ -16,3 +16,4 @@ class DataArgs(Serializable):
     train_data: str = ""
     shuffle: bool = False
     eval_data: str = ""
+    with_replacement: bool = False

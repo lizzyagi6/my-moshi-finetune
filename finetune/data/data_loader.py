@@ -30,6 +30,7 @@ def build_data_loader(
         world_size=world_size,
         is_eval=is_eval,
         shuffle_pretrain=args.shuffle,
+        with_replacement=args.with_replacement,
     )
 
     #if int(os.environ.get("RANK", 0)) == 0:    ipdb.set_trace()

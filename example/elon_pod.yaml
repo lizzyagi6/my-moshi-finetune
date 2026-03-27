@@ -3,6 +3,7 @@ data:
   eval_data: '../moshi_ft_runs/training_data/elon_convo/pods100/eval.jsonl,../moshi_ft_runs/training_data/elon_convo/everyday/eval.jsonl'
   shuffle: true
   train_data: '../moshi_ft_runs/training_data/elon_convo/pods100/train.jsonl,../moshi_ft_runs/training_data/elon_convo/everyday/train.jsonl'
+  with_replacement: true
 
 # model
 moshi_paths: 
@@ -38,8 +39,10 @@ ckpt_freq: 500
 
 save_adapters: true # Must be False if full_finetuning is True
 
-run_dir: "../moshi_ft_runs/runs/elon_pods100"  # Fill
 overwrite_run_dir: true
+
+run_dir: "../moshi_ft_runs/runs/elon_pods100"  # Fill
+description: "pods100+everyday"
 
 # This part is optional and can be kept commented out
 # wandb:

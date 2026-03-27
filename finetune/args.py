@@ -91,7 +91,7 @@ class TrainArgs(Serializable):
     save_adapters: bool = True
     # If False, no checkpoints will be saved. This is useful for development.
     do_ckpt: bool = True
-    num_ckpt_keep: int | None = 3
+    num_ckpt_keep: int | None = 7
     eval_freq: int = 0
     do_eval: bool = False
 
@@ -115,7 +115,6 @@ class TrainArgs(Serializable):
     overwrite_run_dir: bool = False
 
     use_muon: bool = False
-
 
     def __post_init__(self) -> None:
         assert getattr(self, "world_size", None) is None

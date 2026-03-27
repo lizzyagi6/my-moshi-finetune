@@ -22,6 +22,8 @@ AudioChunkPath = tuple[str, float]
 _LOADED_DATASETS: dict[Path, list[AudioChunkPath]] = {}
 
 
+UniqueWavPaths = set()
+
 def main_logger_info(message: str) -> None:
     if dist.is_initialized() and get_rank() == 0:
         logger.info(message)
@@ -157,12 +159,12 @@ def build_dataset(
     world_size: int,
     is_eval: bool,
     shuffle_pretrain: bool = False,
+    with_replacement: bool = False,
 ) -> Iterator[Sample]:
 
     sources, probabilities = parse_data_sources(pretrain_data=pretrain_data)
     # e.g. [DataDir(path=PosixPath('../moshi_ft_runs/training_data/elon_podcasts'))], [1.0]
     #sources is a list of path to folders containing .jsonl files, or a list of .jsonl files
-
 
     shuffle = not is_eval and shuffle_pretrain
 
@@ -175,7 +177,8 @@ def build_dataset(
             is_finite=is_eval,
             seed=seed,
             shuffle_at_epoch=shuffle,
-            info=('eval' if is_eval else "")
+            info=('eval' if is_eval else ""),
+            with_replacement=with_replacement,
         )
         for source in sources
     ]
@@ -208,8 +211,12 @@ def get_dataset_iterator(
     seed: int | None,
     shuffle_at_epoch: bool,
     info: str = "",
+    with_replacement=False,
 ) -> Iterator[Sample]:
     epoch = 1
+
+    logging.info(f"get_dataset_iterator() {source}, {len(source.jsonl_files)} files!")
+
     while True:
         for jsonl_file in source.jsonl_files:
             dataset = sphn.dataset_jsonl(
@@ -221,8 +228,7 @@ def get_dataset_iterator(
             )
             if shuffle_at_epoch:
                 dataset = dataset.shuffle(
-                    with_replacement=False,
-                    #with_replacement=True,
+                    with_replacement=with_replacement, #default was False
                     skip=rank, step_by=world_size, seed=seed
                 )
                 seed += 1
@@ -230,6 +236,8 @@ def get_dataset_iterator(
                 dataset = dataset.seq(skip=rank, step_by=world_size)
 
             #if int(os.environ.get("RANK", 0)) == 0:    ipdb.set_trace()
+            logging.info(f"{str(jsonl_file)}: shff_at_epoch:{shuffle_at_epoch}, w/replacement:{with_replacement}")
+
             for sample in dataset:
                 """
                 {'sample_index': 0, 'file_index': 0, 
@@ -243,6 +251,9 @@ def get_dataset_iterator(
                 wav = sample["data"][..., : sample["unpadded_len"]]
                 if 0:
                     print(f"> sample {info} {os.path.basename(sample['path'])} start_sec:{sample['start_time_sec']} {wav.shape} sample_index:{sample['sample_index']} file_index:{sample['file_index']} shuffle:{shuffle_at_epoch}")
+                
+                UniqueWavPaths.add( sample['path'] )
+
                 yield instruct_tokenizer(wav, sample["start_time_sec"], sample["path"])
 
         if is_finite:

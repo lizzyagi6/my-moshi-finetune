@@ -3,6 +3,7 @@ data:
   eval_data: '../moshi_ft_runs/training_data/elon_convo/pods100/eval.jsonl,../moshi_ft_runs/training_data/elon_convo/everyday/eval.jsonl'
   shuffle: true
   train_data: '../moshi_ft_runs/training_data/elon_convo/pods100/train.jsonl,../moshi_ft_runs/training_data/elon_convo/everyday/train.jsonl'
+  with_replacement: true
 
 # model
 moshi_paths: 
@@ -42,6 +43,7 @@ run_dir: "../moshi_ft_runs/runs/elon_pods_local"  # Fill
 overwrite_run_dir: true
 
 description: "pods100 testing"
+
 
 # This part is optional and can be kept commented out
 # wandb:
