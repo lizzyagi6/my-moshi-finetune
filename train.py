@@ -321,10 +321,9 @@ def _train(args: TrainArgs, exit_stack: ExitStack):
     torch.cuda.empty_cache()
 
     #if int(os.environ.get("RANK", 0)) == 0: ipdb.set_trace()
-
     run = None
     if Run is not None and int(os.environ.get("RANK", 0)) == 0:
-        run = Run(experiment='elon_pods100_local')
+        run = Run(experiment=run_dir.stem)
         run.description = run['description'] = args.description 
         #run.add_tag('gpu=1')
 
@@ -336,6 +335,8 @@ def _train(args: TrainArgs, exit_stack: ExitStack):
             'max_steps': args.max_steps,
             'wt_decay': args.optim.weight_decay,
             'lora_rank': args.lora.rank,
+            'use_muon': args.use_muon,
+            'with_replacement': args.data.with_replacement,
         }
 
     while state.step < args.max_steps:
