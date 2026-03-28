@@ -28,6 +28,9 @@ optim:
   lr: 5e-5
   weight_decay: 0.1
   pct_start: 0.05
+  muon_lr: 1e-4
+
+use_muon: true
 
 # other
 seed: 0

@@ -25,6 +25,7 @@ class OptimArgs(Serializable):
     lr: float = 1e-4
     weight_decay: float = 0.1
     pct_start: float = 0.05
+    muon_lr: float = 1e-3
 
 
 @dataclass

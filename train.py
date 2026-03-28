@@ -252,7 +252,7 @@ def _train(args: TrainArgs, exit_stack: ExitStack):
     opt_muon = None
     scheduler_muon = None
     if args.use_muon:
-        muon_lr = 5e-4
+        muon_lr = args.optim.muon_lr 
         muon_params, adamw_params = get_optimizer_groups(model)
         # Muon generally requires a MUCH higher learning rate (often 0.02)
         # than AdamW (3e-4) to take advantage of orthogonal updates.
@@ -261,7 +261,7 @@ def _train(args: TrainArgs, exit_stack: ExitStack):
             lr=muon_lr,
             momentum=0.95,                   # SOTA standard for Muon
             adjust_lr_fn='match_rms_adamw',
-            weight_decay=0.0,
+            weight_decay=0.1,
         ) if muon_params else None
         # Since OneCycleLR only takes one optimizer, we wrap them or use two schedulers
         # Here is the standard way to keep them in sync:
@@ -282,6 +282,7 @@ def _train(args: TrainArgs, exit_stack: ExitStack):
         adamw_params,
         lr=args.optim.lr,
         betas=(0.9, 0.95),
+        #betas=(0.9, 0.999),
         eps=1e-08,
         weight_decay=args.optim.weight_decay,
     ) if adamw_params else None
@@ -321,10 +322,14 @@ def _train(args: TrainArgs, exit_stack: ExitStack):
     torch.cuda.empty_cache()
 
     #if int(os.environ.get("RANK", 0)) == 0: ipdb.set_trace()
+
     run = None
     if Run is not None and int(os.environ.get("RANK", 0)) == 0:
         run = Run(experiment=run_dir.stem)
-        run.description = run['description'] = args.description 
+        #run["experiment_description"] = args.description 
+        run["description"] = args.description  # optional custom param
+        #if int(os.environ.get("RANK", 0)) == 0: ipdb.set_trace()
+
         #run.add_tag('gpu=1')
 
         run['hparams'] = {
@@ -513,6 +518,8 @@ def _train(args: TrainArgs, exit_stack: ExitStack):
                 dtype=param_dtype,
             )
 
+    if run:
+        run.close()
     main_logger_info("done!")
 
 
