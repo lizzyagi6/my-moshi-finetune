@@ -21,14 +21,12 @@ dependencies = [
   "auditok==0.2",
   #"whisper-timestamped", #comment out if this gives use problems!
   "huggingface_hub",
-
   #"torch==2.6",
   #"torch==2.10.0", #upgraded to use muon
   #"torchaudio",
   #"torchaudio==2.10.0",
   "torch>=2.11.0",
   "torchaudio>=2.11.0",
-
   "submitit",
   "llvmlite>=0.44",
   "numba>=0.61",
@@ -39,6 +37,7 @@ dependencies = [
   "websockets>=16.0",
   "attrdict3>=2.0.2",
   "ipdb>=0.13.13",
+  "aim>=3.29.1",
 ]
 
 [project.optional-dependencies]
