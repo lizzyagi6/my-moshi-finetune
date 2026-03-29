@@ -1,8 +1,11 @@
 import json
 import logging
 import shutil
+import os
+import ipdb
 from pathlib import Path
 
+from dataclasses import asdict
 import safetensors.torch
 import torch
 from moshi.models.lm import LMModel
@@ -12,6 +15,7 @@ from torch.distributed.fsdp.fully_sharded_data_parallel import FullyShardedDataP
 
 from .distributed import get_rank, get_world_size
 from .utils import TrainState
+
 
 logger = logging.getLogger("checkpointing")
 
@@ -30,18 +34,22 @@ class Checkpointer:
         state: TrainState,
         run_dir: Path | str,
         config: dict,
-        optimizer: torch.optim.Optimizer | None = None,
+        #optimizer: torch.optim.Optimizer | None = None,
+        optimizers: list[torch.optim.Optimizer] | None = None,
         num_ckpt_keep: int | None = None,
         full_finetuning: bool = False,
     ):
         self.model = model
-        self.optimizer = optimizer
+        #self.optimizer = optimizer
+        self.optimizers = optimizers if optimizers is not None else []
         self.state = state
         self.run_dir = Path(run_dir)
         self.rank = get_rank()
         self.num_ckpt_keep = num_ckpt_keep
         self.full_finetuning = full_finetuning
         self.config = config
+
+        #if int(os.environ.get("RANK", 0)) == 0: ipdb.set_trace()
 
     @property
     def ckpt_dir(self) -> Path:
@@ -144,7 +152,10 @@ class Checkpointer:
                 )
                 if get_world_size() > 1:
                     with module.summon_full_params(
-                        module, writeback=True, offload_to_cpu=offload_to_cpu
+                        module, 
+                        #writeback=True, 
+                        writeback=False, #opus4.6 recommend to change to False
+                        offload_to_cpu=offload_to_cpu
                     ):
                         states.update(
                             {
@@ -185,7 +196,10 @@ class Checkpointer:
             )
             if get_world_size() > 1:
                 with self.model.summon_full_params(
-                    self.model, writeback=True, offload_to_cpu=offload_to_cpu
+                    self.model, 
+                    #writeback=True, 
+                    writeback=False, #opus4.6 recommend to change to False
+                    offload_to_cpu=offload_to_cpu
                 ):
                     states = self.get_non_lora_states(self.model.state_dict())
                     states = {k: v.to(dtype=save_dtype) for k, v in states.items()}
@@ -217,6 +231,28 @@ class Checkpointer:
             states: dict[str, torch.Tensor] = self.retrieve_save_states(
                 save_only_lora, dtype
             )
+        
+        #new 2. Retrieve Optimizer States (NEW: Handle FSDP sharding for multiple optimizers)
+        optimizer_states = {}
+        for i, opt in enumerate(self.optimizers):
+            # If using FSDP, we must use the FSDP-specific helper to get the full state dict
+            if isinstance(self.model, FullyShardedDataParallel):
+                from torch.distributed.fsdp import FullStateDictConfig, StateDictType
+
+                full_optim_cfg = FullStateDictConfig(
+                    offload_to_cpu= get_world_size() > 1, rank0_only=True
+                )
+                with FullyShardedDataParallel.state_dict_type(
+                    self.model, StateDictType.FULL_STATE_DICT, optim_state_dict_config=full_optim_cfg
+                ):
+                    opt_state = FullyShardedDataParallel.optim_state_dict(self.model, opt)
+            else:
+
+                #print('opt:', opt)
+                opt_state = opt.state_dict()
+
+            if self.rank == 0:
+                optimizer_states[f"optimizer_{i}"] = opt_state
 
         barrier()
 
@@ -228,6 +264,14 @@ class Checkpointer:
                     tmp_dst, save_only_lora=save_only_lora
                 ),  # always use safetensors for checkpointing
             )
+
+            #new 4. Save Optimizer States (Using standard torch.save for nested dicts)
+            if optimizer_states:
+                torch.save(optimizer_states, tmp_dst / "optimizers.pt")
+
+            # save train state for resumption
+            torch.save(asdict(self.state), tmp_dst / "train_state.pt")
+
             self.write_params_info(tmp_dst)
             assert not self.dst_dir.exists(), f"should not happen! {self.dst_dir}"
             tmp_dst.rename(self.dst_dir)
@@ -243,4 +287,6 @@ class Checkpointer:
                     f"Done deleting checkpoints {', '.join([str(c) for c in ckpts_to_delete])}"
                 )
 
+
+        barrier() #all rank wait for rank0 to finish before training will resume
         main_logger_info("Done!")

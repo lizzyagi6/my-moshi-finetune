@@ -12,8 +12,8 @@ moshi_paths:
 full_finetuning: false # Activate lora.enable if partial finetuning
 lora:
   enable: true # Set to False if full_finetuning is True
-  rank: 16
-  scaling: 32.
+  rank: 16 
+  scaling: 16.
   ft_embed: false # Optional, set to True if you want to finetune the embedding layer
 
 first_codebook_weight_multiplier: 100.
@@ -25,10 +25,10 @@ batch_size: 8
 max_steps: 100
 gradient_checkpointing: true
 optim:
-  lr: 1e-5
+  lr: 1e-4
   weight_decay: 0.1
   pct_start: 0.05
-  muon_lr: 1e-4
+  muon_lr: 1e-3
 
 use_muon: true
 
@@ -37,15 +37,15 @@ seed: 0
 log_freq: 1
 eval_freq: 50 
 do_eval: true
-do_ckpt: false
-ckpt_freq: 100
+do_ckpt: true
+ckpt_freq: 200 
 
 save_adapters: true # Must be False if full_finetuning is True
 
 run_dir: "../moshi_ft_runs/runs/elon_pods_muon_local"  # Fill
 overwrite_run_dir: true
 
-description: "adamw+muon on pods100+everyday local, 1e-5 lr 1e-4 muon, lora_alpha2->32 rank16"
+description: "adamw+muon on pods100+everyday local, adaww n/a 1e-3 muon, lora16/16.0"
 
 
 # This part is optional and can be kept commented out

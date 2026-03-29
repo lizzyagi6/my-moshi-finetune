@@ -3,7 +3,7 @@ data:
   eval_data: '../moshi_ft_runs/training_data/elon_convo/pods100/eval.jsonl,../moshi_ft_runs/training_data/elon_convo/everyday/eval.jsonl'
   shuffle: true
   train_data: '../moshi_ft_runs/training_data/elon_convo/pods100/train.jsonl,../moshi_ft_runs/training_data/elon_convo/everyday/train.jsonl'
-  with_replacement: true
+  with_replacement: false
 
 # model
 moshi_paths: 
@@ -20,15 +20,15 @@ first_codebook_weight_multiplier: 100.
 text_padding_weight: .5
 
 # optim
-duration_sec: 20
-batch_size: 32 
-max_steps: 10000
+duration_sec: 30
+batch_size: 16 
+max_steps: 20000
 gradient_checkpointing: true
 optim:
   lr: 5e-5
   weight_decay: 0.1
   pct_start: 0.05
-  muon_lr: 1e-4
+  muon_lr: 1e-3
 
 use_muon: true
 
@@ -38,14 +38,14 @@ log_freq: 50
 eval_freq: 200 
 do_eval: true
 do_ckpt: true
-ckpt_freq: 500
+ckpt_freq: 1000
 
 save_adapters: true # Must be False if full_finetuning is True
 
 overwrite_run_dir: false
 
-run_dir: "../moshi_ft_runs/runs/elon_pods100_w_repl_20s"  # Fill
-description: "pods100+everyday, with replacements, duration is 20s, bsz=32, lr 5e-5"
+run_dir: "../moshi_ft_runs/runs/elon_pods100_muon"  # Fill
+description: "pods100+everyday, w/replmnt=False, dur=30, muon lr=1e-3 bsz=16, lora128/2.0"
 
 # This part is optional and can be kept commented out
 # wandb:

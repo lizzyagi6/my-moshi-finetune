@@ -60,12 +60,16 @@ def main_logger_info(message: str) -> None:
     if get_rank() == 0:
         logger.info(message)
 
-# --- Helper Utility for 2026 SOTA Optimizer Splitting ---
+
 def get_optimizer_groups(model):
     muon_params = []
     adamw_params = []
-    for name, p in model.named_parameters():
-        print(name, p.ndim, p.requires_grad)
+
+    # 1. Collect all parameters that actually need gradients
+    all_trainable = [p for p in model.parameters() if p.requires_grad]
+
+    #for name, p in model.named_parameters():
+    #    print(name, p.ndim, p.requires_grad)
 
     #if int(os.environ.get("RANK", 0)) == 0: ipdb.set_trace()
     for name, p in model.named_parameters():
@@ -73,10 +77,25 @@ def get_optimizer_groups(model):
             continue
         # Muon only handles >= 2D parameters (Weight Matrices)
         # We exclude Embeddings because they are usually updated sparsely
+
+        #if int(os.environ.get("RANK", 0)) == 0: ipdb.set_trace()
         if p.ndim >= 2 and "emb" not in name.lower():
             muon_params.append(p)
         else:
             adamw_params.append(p)
+
+
+    # 2. Validation Check
+    total_grouped = len(muon_params) + len(adamw_params)
+    expected_total = len(all_trainable)
+    
+    if total_grouped != expected_total:
+        raise ValueError(
+            f"Parameter mismatch! Grouped {total_grouped} params, "
+            f"but model has {expected_total} trainable params."
+        )
+        
+    print(f"Groups verified: Muon ({len(muon_params)}), AdamW ({len(adamw_params)})")
     return muon_params, adamw_params
 
 
@@ -272,11 +291,12 @@ def _train(args: TrainArgs, exit_stack: ExitStack):
             pct_start=args.optim.pct_start
         ) if opt_muon else None
 
-    #if int(os.environ.get("RANK", 0)) == 0: ipdb.set_trace(dataset_path)
 
     # 7. Load optimizer
     if not args.use_muon:
         adamw_params = model.parameters()
+
+    #if int(os.environ.get("RANK", 0)) == 0: ipdb.set_trace()
 
     optimizer = AdamW(
         adamw_params,
@@ -298,17 +318,25 @@ def _train(args: TrainArgs, exit_stack: ExitStack):
 
     #if int(os.environ.get("RANK", 0)) == 0: ipdb.set_trace()
 
+    optimizers = []
+    if optimizer:
+        optimizers.append(optimizer)
+    if opt_muon:
+        optimizers.append(opt_muon)
+
+    #if int(os.environ.get("RANK", 0)) == 0: ipdb.set_trace()
+
+    assert len(optimizers) > 0
+
     # 8. Initialize checkpointer
     if args.do_ckpt:
-        if opt_muon:
-            assert False, "need to see how we can save the weights in this case"
-
         checkpointer = Checkpointer(
             model=model,
             state=state,
             config=lm_config,
             run_dir=run_dir,
-            optimizer=optimizer,
+            #optimizer=optimizer,
+            optimizers=optimizers,
             num_ckpt_keep=args.num_ckpt_keep,
             full_finetuning=args.full_finetuning,
         )
@@ -326,7 +354,7 @@ def _train(args: TrainArgs, exit_stack: ExitStack):
     run = None
     if Run is not None and int(os.environ.get("RANK", 0)) == 0:
         run = Run(experiment=run_dir.stem)
-        #run["experiment_description"] = args.description 
+        run["experiment_description"] = args.description 
         run["description"] = args.description  # optional custom param
         #if int(os.environ.get("RANK", 0)) == 0: ipdb.set_trace()
 
